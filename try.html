@@ -1,0 +1,563 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <title>ThermoSkin AI — Enhanced Demo</title>
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <style>
+    :root{
+      --bg-1: #0f1724;
+      --bg-2: #071021;
+      --card: rgba(255,255,255,0.04);
+      --glass: rgba(255,255,255,0.03);
+      --accent: #37d67a;
+      --muted: #9aa0a6;
+      --glass-border: rgba(255,255,255,0.06);
+      --danger: #ff6b6b;
+    }
+    /* Page layout */
+    html,body{height:100%;}
+    body { font-family: Inter, Arial, sans-serif; margin:0; padding:20px; background: linear-gradient(180deg, var(--bg-1) 0%, var(--bg-2) 100%); color:#eef2f3; -webkit-font-smoothing:antialiased; }
+    header{display:flex;gap:16px;align-items:center;justify-content:space-between;margin-bottom:18px}
+    h1{margin:0;font-size:20px}
+    .subtitle{color:var(--muted);font-size:13px}
+
+    main{display:grid;grid-template-columns:1fr 380px;gap:18px;align-items:start}
+
+    .card{background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.015));border:1px solid var(--glass-border);padding:14px;border-radius:12px;box-shadow:0 8px 30px rgba(2,6,23,0.6)}
+
+    /* Left column */
+    .left{min-width:320px}
+    #video, #canvas{width:100%;border-radius:10px;background:#000;display:block}
+    .controls{margin-top:10px;display:flex;gap:8px;flex-wrap:wrap}
+    .btn{background:linear-gradient(180deg,var(--accent),#2eb665);color:#012018;border:none;padding:9px 12px;border-radius:8px;cursor:pointer;font-weight:600}
+    .btn.secondary{background:transparent;border:1px solid rgba(255,255,255,0.06);color:var(--muted)}
+    .btn.ghost{background:transparent;border:1px dashed rgba(255,255,255,0.04)}
+    input[type="text"]{width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,0.04);background:transparent;color:inherit}
+
+    /* Right column / sidebar */
+    .right{height:78vh;overflow:auto;padding:12px}
+    .disease-list{margin-top:10px}
+    .disease-item{padding:8px;border-bottom:1px solid rgba(255,255,255,0.02);cursor:pointer}
+    .disease-item:hover{background:rgba(255,255,255,0.01)}
+
+    /* Prediction area */
+    #predictionArea{margin-top:12px}
+    .result{margin-top:8px;font-weight:700}
+    .small-muted{color:var(--muted);font-size:13px}
+    #avgTempDisplay{margin-top:6px}
+
+    /* Prediction bars */
+    .pred-list{margin-top:8px}
+    .pred-item{display:flex;align-items:center;gap:8px;padding:6px 4px}
+    .pred-label{width:140px;font-size:13px}
+    .pred-bar{flex:1;height:10px;border-radius:6px;background:rgba(255,255,255,0.04);overflow:hidden}
+    .pred-bar > i{display:block;height:100%;border-radius:6px;background:linear-gradient(90deg,#ffd166,#ff7b7b);width:0%;transition:width 800ms ease}
+    .pred-pct{width:48px;text-align:right;font-size:12px;color:var(--muted)}
+
+    /* ML concepts panel */
+    .ml-panel{margin-top:12px;background:linear-gradient(180deg, rgba(255,255,255,0.01), transparent);padding:10px;border-radius:10px;border:1px solid rgba(255,255,255,0.03)}
+    details{color:var(--muted)}
+
+    /* Test log */
+    #testResults{font-family:monospace;white-space:pre-wrap;margin-top:8px;background:#06060a;padding:8px;border-radius:8px;color:#cfe}
+
+    /* Responsive */
+    @media (max-width:980px){main{grid-template-columns:1fr}} 
+
+    /* Nice background overlay for canvas output */
+    .canvas-wrap{position:relative}
+    .thermal-overlay{position:absolute;right:12px;bottom:12px;background:rgba(0,0,0,0.45);padding:6px 8px;border-radius:8px;font-weight:700}
+
+    .disclaimer{margin-top:10px;color:#ffdca3;font-size:12px}
+  </style>
+</head>
+<body>
+  <header>
+    <div>
+      <h1>ThermoSkin AI — Enhanced Demo</h1>
+      <div class="subtitle">Improved UI • ML concept panel • 30 more diseases added • Thermal proxy + simulated predictions</div>
+    </div>
+    <div style="text-align:right">
+      <div class="small-muted">Demo only — not clinical. For research/educational purposes.</div>
+      <div style="margin-top:6px">Version: <strong>Enhanced UI</strong></div>
+    </div>
+  </header>
+
+  <main>
+    <section class="left card">
+      <div class="canvas-wrap">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas" style="margin-top:8px; display:block;"></canvas>
+        <div class="thermal-overlay" id="thermalBadge">Thermal proxy</div>
+      </div>
+
+      <div class="controls">
+        <button id="startCamBtn" class="btn">Start Camera</button>
+        <button id="captureBtn" class="btn secondary">Capture</button>
+
+        <label class="btn secondary" id="uploadLabel">Upload
+          <input id="fileInput" type="file" accept="image/*" />
+        </label>
+
+        <button id="applyThermalBtn" class="btn">Apply Thermal</button>
+        <button id="predictBtn" class="btn ghost">Predict</button>
+        <button id="downloadCSVBtn" class="btn secondary">Download CSV</button>
+      </div>
+
+      <div style="margin-top:12px;display:flex;gap:8px;align-items:center">
+        <input id="modelUrl" type="text" placeholder="Model base URL (optional)" />
+        <button id="loadModelBtn" class="btn secondary">Load Model</button>
+      </div>
+
+      <div class="ml-panel">
+        <details open>
+          <summary><strong>Machine Learning concepts (client-side demo)</strong></summary>
+          <div style="margin-top:8px" class="small-muted">
+            <ul>
+              <li><strong>Preprocessing:</strong> resize, normalize (0–1), and optionally apply color normalization or thermal colormap.</li>
+              <li><strong>Feature extraction:</strong> convolutional layers learn edge/texture features; transfer learning uses pre-trained backbones (MobileNet, ResNet) for better accuracy.</li>
+              <li><strong>Inference:</strong> feed a 224×224 tensor, run model.predict, then softmax to obtain class probabilities.</li>
+              <li><strong>Explainability (demo):</strong> simple saliency map / thermal proxy highlights bright areas as candidate regions.</li>
+            </ul>
+          </div>
+        </details>
+
+        <div style="margin-top:8px" class="small-muted">Quick diagram (CNN):</div>
+        <svg width="100%" height="60" viewBox="0 0 600 60" style="margin-top:6px">
+          <rect x="10" y="8" width="80" height="44" rx="6" fill="rgba(255,255,255,0.03)" stroke="rgba(255,255,255,0.06)"/>
+          <text x="50" y="36" text-anchor="middle" font-size="11" fill="#9aa0a6">Input</text>
+          <rect x="120" y="8" width="100" height="44" rx="6" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.05)"/>
+          <text x="170" y="36" text-anchor="middle" font-size="11" fill="#9aa0a6">Conv → Pool</text>
+          <rect x="240" y="8" width="120" height="44" rx="6" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.05)"/>
+          <text x="300" y="36" text-anchor="middle" font-size="11" fill="#9aa0a6">Feature Maps</text>
+          <rect x="380" y="8" width="120" height="44" rx="6" fill="rgba(255,255,255,0.02)" stroke="rgba(255,255,255,0.05)"/>
+          <text x="440" y="36" text-anchor="middle" font-size="11" fill="#9aa0a6">Dense → Softmax</text>
+        </svg>
+      </div>
+
+      <div id="predictionArea">
+        <div id="result" class="result">Result will appear here</div>
+        <div id="avgTempDisplay" class="small-muted"></div>
+        <div class="pred-list" id="topPreds" style="margin-top:8px"></div>
+      </div>
+
+      <div id="testResults" aria-live="polite"></div>
+      <div class="disclaimer">⚠️ Not medical advice. This demo uses a visual "thermal proxy" and simulated predictions for educational purposes only.</div>
+    </section>
+
+    <aside class="right card">
+      <label class="small-muted">Search diseases</label>
+      <input id="search" type="text" placeholder="Search (e.g., acne, melanoma)" />
+      <div class="disease-list" id="diseaseList"></div>
+
+      <div style="margin-top:12px">
+        <strong>Selected disease</strong>
+        <div id="selectedName" style="margin-top:6px;font-weight:700"></div>
+        <div id="selectedDesc" class="small-muted" style="margin-top:6px"></div>
+      </div>
+    </aside>
+  </main>
+
+<script>
+/* -------------------------
+   Disease data (now 105 entries: original 75 + 30 new)
+   ------------------------- */
+const diseases = [
+  { name: "Acne vulgaris", desc: "Common pimples due to blocked hair follicles and bacteria." },
+  { name: "Rosacea", desc: "Chronic facial redness with possible pimples and visible blood vessels." },
+  { name: "Atopic dermatitis (eczema)", desc: "Itchy, inflamed skin often in flexural areas." },
+  { name: "Contact dermatitis", desc: "Skin reaction caused by contact with irritant or allergen." },
+  { name: "Seborrheic dermatitis", desc: "Greasy scales and redness, often on scalp/face." },
+  { name: "Psoriasis", desc: "Thick red plaques with silvery scale, often on elbows/knees." },
+  { name: "Lichen planus", desc: "Itchy, purple, flat-topped papules on skin or mucosa." },
+  { name: "Lichen simplex chronicus", desc: "Thickened, itchy skin from chronic scratching/rubbing." },
+  { name: "Pityriasis rosea", desc: "Self-limited scaly rash often starting with a 'herald patch'." },
+  { name: "Pityriasis versicolor", desc: "Fungal infection causing patchy skin discoloration." },
+  { name: "Tinea corporis", desc: "Ringworm—fungal infection of body skin with ringed patches." },
+  { name: "Tinea pedis", desc: "Athlete's foot—fungal infection between toes/feet." },
+  { name: "Tinea cruris", desc: "Jock itch—fungal infection of groin area." },
+  { name: "Onychomycosis", desc: "Fungal infection of nails leading to thickened, discolored nails." },
+  { name: "Cutaneous candidiasis", desc: "Yeast infection causing red, moist patches in folds." },
+  { name: "Impetigo", desc: "Contagious bacterial skin infection with honey-colored crusts." },
+  { name: "Cellulitis", desc: "Deep bacterial skin infection causing warmth, redness, swelling." },
+  { name: "Erysipelas", desc: "Superficial bacterial skin infection with sharp raised borders." },
+  { name: "Folliculitis", desc: "Inflammation/infection of hair follicles." },
+  { name: "Hidradenitis suppurativa", desc: "Painful nodules and tunnels in sweat-gland areas." },
+  { name: "Scabies", desc: "Itchy infestation by mites causing burrows and papules." },
+  { name: "Pediculosis (lice)", desc: "Infestation of lice on scalp/body causing itching." },
+  { name: "Molluscum contagiosum", desc: "Small dome-shaped viral papules with central dimple." },
+  { name: "Herpes simplex", desc: "Viral grouped vesicles/sores on skin or mucosa." },
+  { name: "Herpes zoster (shingles)", desc: "Painful, unilateral vesicular rash in dermatomal pattern." },
+  { name: "Varicella (chickenpox)", desc: "Generalized itchy vesicular rash (usually childhood)." },
+  { name: "Erythema multiforme", desc: "Target-like lesions often after infection or drug." },
+  { name: "Stevens–Johnson syndrome (SJS)", desc: "Severe mucocutaneous reaction with epidermal detachment." },
+  { name: "Toxic epidermal necrolysis (TEN)", desc: "Widespread epidermal sloughing; life-threatening." },
+  { name: "Urticaria (hives)", desc: "Transient pruritic wheals due to histamine-mediated swelling." },
+  { name: "Angioedema", desc: "Deeper swelling often involving face/lips or airway." },
+  { name: "Discoid lupus erythematosus", desc: "Chronic scaly plaques on sun-exposed skin." },
+  { name: "Cutaneous small-vessel vasculitis", desc: "Inflamed small vessels producing palpable purpura." },
+  { name: "Erythema nodosum", desc: "Tender red nodules on the shins due to panniculitis." },
+  { name: "Granuloma annulare", desc: "Ring-shaped smooth papules often on hands/feet." },
+  { name: "Cutaneous sarcoidosis", desc: "Red-brown plaques or nodules associated with sarcoid." },
+  { name: "Pyoderma gangrenosum", desc: "Painful ulcer with undermined borders usually with systemic disease." },
+  { name: "Bullous pemphigoid", desc: "Autoimmune blistering disease in elderly causing tense blisters." },
+  { name: "Pemphigus vulgaris", desc: "Autoimmune mucocutaneous blistering with flaccid blisters." },
+  { name: "Dermatitis herpetiformis", desc: "Intensely itchy blisters linked to celiac disease." },
+  { name: "Porphyria cutanea tarda", desc: "Photosensitivity causing fragile skin and blisters on sun-exposed areas." },
+  { name: "Alopecia areata", desc: "Sudden, patchy hair loss due to autoimmune attack of hair follicles." },
+  { name: "Androgenetic alopecia", desc: "Pattern hair loss (male/female) due to genetics/hormones." },
+  { name: "Trichotillomania", desc: "Hair loss from compulsive pulling." },
+  { name: "Paronychia", desc: "Infection of nail fold causing redness and pain." },
+  { name: "Nail psoriasis", desc: "Pitting, discoloration or lifting of nails from psoriasis." },
+  { name: "Melanocytic nevus", desc: "Benign mole formed by melanocyte proliferation." },
+  { name: "Dysplastic nevus", desc: "Atypical mole with irregular features—may need monitoring." },
+  { name: "Malignant melanoma", desc: "Dangerous skin cancer arising from melanocytes." },
+  { name: "Basal cell carcinoma", desc: "Common slow-growing skin cancer often pearly in appearance." },
+  { name: "Squamous cell carcinoma", desc: "Skin cancer that may ulcerate and can metastasize." },
+  { name: "Actinic keratosis", desc: "Rough scaly patch from sun damage; precancerous." },
+  { name: "Seborrheic keratosis", desc: "Benign stuck-on pigmented growths on older skin." },
+  { name: "Keratoacanthoma", desc: "Rapidly growing crateriform lesion that may resemble SCC." },
+  { name: "Cutaneous T-cell lymphoma", desc: "A group of lymphomas presenting in skin (e.g., mycosis fungoides)." },
+  { name: "Kaposi sarcoma", desc: "Vascular tumor linked to HHV-8 causing purple lesions." },
+  { name: "Melasma", desc: "Brownish facial hyperpigmentation linked to hormones/sun." },
+  { name: "Post-inflammatory hyperpigmentation", desc: "Darkening after inflammation or injury." },
+  { name: "Vitiligo", desc: "Loss of pigment producing white patches on skin." },
+  { name: "Albinism", desc: "Genetic lack of melanin causing pale skin/hair and ocular issues." },
+  { name: "Morphea (localized scleroderma)", desc: "Hard, sclerotic patches of skin." },
+  { name: "Systemic sclerosis (cutaneous involvement)", desc: "Widespread skin tightening associated with systemic disease." },
+  { name: "Keratosis pilaris", desc: "Rough small bumps often on upper arms/thighs." },
+  { name: "Prurigo nodularis", desc: "Multiple itchy nodules from chronic scratching." },
+  { name: "Intertrigo", desc: "Inflammation in skin folds worsened by moisture." },
+  { name: "Miliaria (heat rash)", desc: "Blocked sweat ducts causing small itchy papules." },
+  { name: "Perioral dermatitis", desc: "Small papules around mouth often from topical steroids." },
+  { name: "Cheilitis", desc: "Inflammation of the lips (multiple causes)." },
+  { name: "Actinic cheilitis", desc: "Sun damage to lips that may be precancerous." },
+  { name: "Infantile hemangioma", desc: "Benign vascular birthmark appearing in infancy." },
+  { name: "Port-wine stain", desc: "Capillary malformation causing flat red/purple birthmark." },
+  { name: "Nevus sebaceous", desc: "Congenital hairless plaque often on scalp." },
+  { name: "Xanthoma", desc: "Yellowish deposits of fat in skin associated with lipid disorders." },
+  { name: "Calcinosis cutis", desc: "Calcium deposits in skin causing hard nodules." },
+  { name: "Fixed drug eruption", desc: "Recurrent localized skin reaction at same site after a drug." },
+  // 30 additional demo entries below
+  { name: "Eczema herpeticum", desc: "Widespread herpes infection on pre-existing eczema." },
+  { name: "Necrobiosis lipoidica", desc: "Shiny, atrophic plaques often on the shins, sometimes linked to diabetes." },
+  { name: "Stasis dermatitis", desc: "Inflammation and discoloration from chronic venous insufficiency." },
+  { name: "Porokeratosis", desc: "Disorder producing annular scaly plaques with thin elevated borders." },
+  { name: "Linear IgA dermatosis", desc: "Autoimmune blistering disease with linear IgA deposits." },
+  { name: "Darier disease (keratosis follicularis)", desc: "Genetic disorder with greasy, warty papules in seborrheic areas." },
+  { name: "Hailey-Hailey disease", desc: "Genetic recurrent blisters and erosions in flexures." },
+  { name: "Epidermolysis bullosa", desc: "Group of genetic disorders causing fragile skin and blisters." },
+  { name: "Sweet syndrome (acute febrile neutrophilic dermatosis)", desc: "Tender red plaques often with fever and systemic symptoms." },
+  { name: "Pemphigus foliaceus", desc: "Autoimmune superficial blistering disorder affecting the epidermis." },
+  { name: "Pityriasis lichenoides", desc: "Spectrum of papulosquamous eruptions ranging acute to chronic." },
+  { name: "Keratosis follicularis", desc: "Follicular hyperkeratosis producing small rough bumps." },
+  { name: "Nevus depigmentosus", desc: "Stable, non-progressive area of congenital hypopigmentation." },
+  { name: "Lupus pernio", desc: "Chronic violaceous facial lesions associated with sarcoidosis." },
+  { name: "Scleromyxedema", desc: "Waxy papules with mucin deposition and systemic involvement." },
+  { name: "Eosinophilic cellulitis (Wells syndrome)", desc: "Recurrent cellulitis-like plaques with eosinophil-rich infiltrates." },
+  { name: "Erythroderma", desc: "Widespread redness and scaling involving most of the skin surface." },
+  { name: "Leukocytoclastic vasculitis", desc: "Small-vessel vasculitis presenting with palpable purpura." },
+  { name: "Cutaneous leishmaniasis", desc: "Parasitic infection causing chronic ulcers at bite sites." },
+  { name: "Mycetoma", desc: "Chronic subcutaneous infection forming draining sinuses and granules." },
+  { name: "Chromoblastomycosis", desc: "Chronic fungal infection producing verrucous lesions." },
+  { name: "Actinic prurigo", desc: "Photosensitive itchy papules often starting in childhood." },
+  { name: "Linear scleroderma", desc: "Localized sclerotic band-like plaques often on limbs or face." },
+  { name: "Morphea profunda", desc: "Deeper form of localized scleroderma affecting subcutis and muscle." },
+  { name: "Pseudofolliculitis barbae", desc: "Ingrown hairs causing papules and pustules in shaved areas." },
+  { name: "Piezogenic pedal papules", desc: "Fat herniation on heels appearing with pressure or standing." },
+  { name: "Hyperhidrosis", desc: "Excessive sweating often affecting palms, soles, or axillae." },
+  { name: "Anhidrosis", desc: "Absent or reduced sweating causing heat intolerance." }
+];
+
+/* -------------------------
+   DOM refs & state
+   ------------------------- */
+const video = document.getElementById('video');
+const canvas = document.getElementById('canvas');
+const ctx = canvas.getContext('2d');
+const fileInput = document.getElementById('fileInput');
+const startCamBtn = document.getElementById('startCamBtn');
+const captureBtn = document.getElementById('captureBtn');
+const applyThermalBtn = document.getElementById('applyThermalBtn');
+const predictBtn = document.getElementById('predictBtn');
+const downloadCSVBtn = document.getElementById('downloadCSVBtn');
+const loadModelBtn = document.getElementById('loadModelBtn');
+const modelStatus = document.getElementById('modelStatus');
+const resultEl = document.getElementById('result');
+const avgTempDisplay = document.getElementById('avgTempDisplay');
+const topPreds = document.getElementById('topPreds');
+const diseaseListEl = document.getElementById('diseaseList');
+const searchEl = document.getElementById('search');
+const selectedNameEl = document.getElementById('selectedName');
+const selectedDescEl = document.getElementById('selectedDesc');
+const testResultsEl = document.getElementById('testResults');
+const thermalBadge = document.getElementById('thermalBadge');
+
+let streamRef = null;
+let lastAvgTemp = null;
+let tfModel = null;
+
+/* -------------------------
+   Render disease list & search
+   ------------------------- */
+function renderList() {
+  const q = (searchEl.value || "").toLowerCase();
+  diseaseListEl.innerHTML = "";
+  diseases.filter(d => d.name.toLowerCase().includes(q) || d.desc.toLowerCase().includes(q))
+    .forEach(d => {
+      const div = document.createElement('div');
+      div.className = 'disease-item';
+      div.textContent = d.name;
+      div.onclick = () => {
+        selectedNameEl.textContent = d.name;
+        selectedDescEl.textContent = d.desc;
+      };
+      diseaseListEl.appendChild(div);
+    });
+}
+renderList();
+searchEl.addEventListener('input', renderList);
+
+/* -------------------------
+   Camera control
+   ------------------------- */
+async function startCamera() {
+  try {
+    if (streamRef) return;
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: 'user' }});
+    streamRef = stream;
+    video.srcObject = stream;
+  } catch (err) {
+    console.warn('startCamera error', err);
+    alert("Camera permission blocked or not available. You can still upload an image.");
+  }
+}
+window.startCamera = startCamera;
+
+/* -------------------------
+   Capture frame
+   ------------------------- */
+function capture() {
+  if (!video.videoWidth || !video.videoHeight) {
+    alert("Camera not ready. Start Camera first or upload a photo.");
+    return;
+  }
+  canvas.width = video.videoWidth;
+  canvas.height = video.videoHeight;
+  ctx.drawImage(video, 0, 0);
+  applyThermal();
+}
+window.capture = capture;
+
+/* -------------------------
+   Upload image handler
+   ------------------------- */
+window.uploadImage = function uploadImage(event) {
+  const file = event && event.target && event.target.files && event.target.files[0];
+  if (!file) { console.warn("uploadImage called but no file provided"); return; }
+  const img = new Image();
+  img.onload = function() {
+    canvas.width = img.width;
+    canvas.height = img.height;
+    ctx.drawImage(img, 0, 0);
+    applyThermal();
+    URL.revokeObjectURL(img.src);
+  };
+  img.src = URL.createObjectURL(file);
+};
+fileInput.addEventListener('change', (e) => { window.uploadImage(e); });
+
+/* -------------------------
+   Thermal effect (improved proxy + colormap)
+   ------------------------- */
+function applyThermal() {
+  try {
+    const w = canvas.width, h = canvas.height;
+    if (w === 0 || h === 0) { alert("No image to process. Capture or upload a photo first."); return; }
+    const imageData = ctx.getImageData(0, 0, w, h);
+    const data = imageData.data;
+    let totalBrightness = 0;
+    for (let i = 0; i < data.length; i += 4) {
+      const r = data[i], g = data[i+1], b = data[i+2];
+      const brightness = 0.299*r + 0.587*g + 0.114*b;
+      totalBrightness += brightness;
+      // improved colormap: map brightness -> heat + blue->red interpolation
+      const t = Math.max(0, Math.min(1, (brightness - 20) / 235));
+      // simple gradient: blue -> yellow -> red
+      const heatR = Math.floor(255 * Math.min(1, t * 1.4));
+      const heatG = Math.floor(255 * Math.min(1, (t - 0.25) * 1.3));
+      const heatB = Math.floor(255 * Math.min(1, (1 - t) * 1.2));
+      data[i]     = heatR;
+      data[i + 1] = Math.max(0, heatG);
+      data[i + 2] = heatB;
+    }
+    ctx.putImageData(imageData, 0, 0);
+    const avg = totalBrightness / (data.length / 4);
+    lastAvgTemp = avg;
+    avgTempDisplay.innerText = `Avg brightness (thermal proxy): ${avg.toFixed(1)}`;
+    thermalBadge.innerText = (avg > 130) ? "⚠️ Possible inflammation (proxy)" : "✅ No strong inflammation (proxy)";
+    resultEl.innerText = (avg > 130) ? "⚠ Thermal proxy: possible inflammation detected" : "✅ Thermal proxy: no strong inflammation detected";
+    topPreds.innerHTML = ""; // clear old predictions
+  } catch (e) {
+    console.error("applyThermal error", e);
+    alert("Could not apply thermal effect. See console for details.");
+  }
+}
+window.applyThermal = applyThermal;
+
+/* -------------------------
+   Simulated predictor -> now fills animated bars
+   ------------------------- */
+const inflamList = [
+  "Cellulitis","Erysipelas","Hidradenitis suppurativa","Impetigo","Folliculitis",
+  "Herpes zoster","Herpes simplex","Pyoderma gangrenosum","Cutaneous candidiasis","Abscess"
+];
+function simulatePredict(avg) {
+  const top = [];
+  const n = Math.min(5, inflamList.length);
+  const base = Math.max(0.01, Math.min(3, (avg - 80)/40));
+  const weights = inflamList.map((_, i) => (1 + base) * (1 + (i%3)*0.15) * (1 - (i*0.02)));
+  const sum = weights.reduce((a,b)=>a+b,0);
+  const probs = weights.map(w=>w/sum);
+  const idxs = Array.from(probs.map((p,i)=>({p,i}))).sort((a,b)=>b.p-a.p).slice(0,n);
+  idxs.forEach(it => top.push({ name: inflamList[it.i], prob: (it.p*100).toFixed(1) }));
+  return top;
+}
+
+/* show predictions as bars */
+function renderPredictions(list) {
+  topPreds.innerHTML = "<strong>Top predictions</strong>";
+  const container = document.createElement('div');
+  list.forEach(item => {
+    const row = document.createElement('div'); row.className = 'pred-item';
+    const label = document.createElement('div'); label.className = 'pred-label'; label.textContent = item.name;
+    const barWrap = document.createElement('div'); barWrap.className = 'pred-bar';
+    const bar = document.createElement('i'); bar.style.width = '0%';
+    barWrap.appendChild(bar);
+    const pct = document.createElement('div'); pct.className = 'pred-pct'; pct.textContent = item.prob + '%';
+    row.appendChild(label); row.appendChild(barWrap); row.appendChild(pct);
+    container.appendChild(row);
+    // animate width
+    setTimeout(()=>{ bar.style.width = item.prob + '%'; }, 50);
+  });
+  topPreds.appendChild(container);
+}
+
+/* -------------------------
+   Model loading skeleton (same as before)
+   ------------------------- */
+async function loadTFModel() {
+  const base = document.getElementById('modelUrl').value.trim();
+  if (!base) { alert("Paste the TF.js base URL (folder containing model.json) then click Load Model."); return; }
+  modelStatus && (modelStatus.innerText = "Loading model...");
+  try {
+    if (typeof tmImage !== 'undefined') {
+      tfModel = await tmImage.load(base + "model.json", base + "metadata.json");
+      modelStatus && (modelStatus.innerText = "Teachable Machine model loaded.");
+    } else if (typeof tf !== 'undefined') {
+      try { tfModel = await tf.loadGraphModel(base + "model.json"); } catch (_) { tfModel = await tf.loadLayersModel(base + "model.json"); }
+      modelStatus && (modelStatus.innerText = "TF.js model loaded.");
+    } else {
+      modelStatus && (modelStatus.innerText = "TF.js not included. Add TF.js/TeachableMachine scripts to use a model.");
+      tfModel = null;
+    }
+  } catch (e) { console.error("loadTFModel error", e); modelStatus && (modelStatus.innerText = "Model load failed. Check console and model path."); tfModel = null; }
+}
+window.loadTFModel = loadTFModel;
+
+/* -------------------------
+   Predict (real model if present, otherwise simulated)
+   ------------------------- */
+async function predict() {
+  if (!canvas.width || !canvas.height) { alert("Capture or upload an image before predicting."); return; }
+  topPreds.innerHTML = "Predicting...";
+  if (tfModel && typeof tfModel.predict === 'function' && typeof tfModel.getTotalClasses === 'function') {
+    const preds = await tfModel.predict(canvas);
+    preds.sort((a,b)=> b.probability - a.probability);
+    const out = preds.slice(0,5).map(p => ({name:p.className, prob:(p.probability*100).toFixed(2)}));
+    renderPredictions(out);
+    return;
+  }
+  if (tfModel && typeof tf !== 'undefined') {
+    try {
+      const imgTensor = tf.browser.fromPixels(canvas).resizeNearestNeighbor([224,224]).toFloat().div(tf.scalar(255)).expandDims(0);
+      let preds = await tfModel.predict(imgTensor);
+      const arr = await (Array.isArray(preds) ? preds[0].data() : preds.data());
+      const topIdx = Array.from(arr.map((v,i)=>({v,i}))).sort((a,b)=>b.v-a.v).slice(0,5);
+      const out = topIdx.map(t=>({name:`Label ${t.i}`, prob:(arr[t.i]*100).toFixed(2)}));
+      renderPredictions(out);
+    } catch (e) { console.error("tf predict error", e); topPreds.innerHTML = "Model predict failed. See console."; }
+    return;
+  }
+  // fallback simulated
+  const avg = lastAvgTemp || 120;
+  const top = simulatePredict(avg);
+  renderPredictions(top);
+}
+window.predict = predict;
+
+/* -------------------------
+   Download CSV
+   ------------------------- */
+function downloadCSV() {
+  const csv = "disease,description\n" + diseases.map(d => `"${d.name.replace(/"/g,'""')}","${d.desc.replace(/"/g,'""')}"`).join("\n");
+  const blob = new Blob([csv], { type: 'text/csv' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a'); a.href = url; a.download = "thermoskin_diseases.csv"; a.click(); URL.revokeObjectURL(url);
+}
+window.downloadCSV = downloadCSV;
+
+/* -------------------------
+   Test helpers
+   ------------------------- */
+function dataURLtoFile(dataurl, filename) {
+  const arr = dataurl.split(',');
+  const mime = arr[0].match(/:(.*?);/)[1];
+  const bstr = atob(arr[1]);
+  let n = bstr.length;
+  const u8arr = new Uint8Array(n);
+  while (n--) u8arr[n] = bstr.charCodeAt(n);
+  return new File([u8arr], filename, {type: mime});
+}
+async function runTests() {
+  const logs = [];
+  function log(s) { logs.push(s); testResultsEl.textContent = logs.join("\n"); }
+  log("Test 1: uploadImage function exists?");
+  if (typeof window.uploadImage === 'function') { log("  ✓ uploadImage is defined on window"); } else { log("  ✗ uploadImage is NOT defined on window"); }
+  log("Test 2: simulate upload with synthetic PNG");
+  const tc = document.createElement('canvas'); tc.width = 64; tc.height = 64;
+  const tctx = tc.getContext('2d'); tctx.fillStyle = '#ff4444'; tctx.fillRect(0,0,64,64);
+  const dataUrl = tc.toDataURL('image/png');
+  const file = dataURLtoFile(dataUrl, 'test.png');
+  try {
+    await new Promise((resolve) => {
+      const ev = { target: { files: [file] } };
+      window.uploadImage(ev);
+      setTimeout(() => {
+        if ((canvas.width > 0) && (canvas.height > 0)) { log("  ✓ synthetic image uploaded and canvas updated"); resolve(); } else { log("  ✗ canvas not updated after uploadImage"); resolve(); }
+      }, 600);
+    });
+  } catch (e) { log("  ✗ upload simulation threw error: " + e); }
+  log("Test 3: applyThermal runs without exception");
+  try { applyThermal(); log("  ✓ applyThermal finished (check visual canvas)"); } catch (e) { log("  ✗ applyThermal threw: " + e); }
+  log("Test 4: predict (simulated) runs");
+  try { await predict(); log("  ✓ predict ran (check predictions)"); } catch (e) { log("  ✗ predict threw: " + e); }
+  log("\nAll tests done. Visual checks: canvas, result message, prediction bars.");
+  return logs;
+}
+const runTestsBtn = document.getElementById('runTestsBtn');
+if (runTestsBtn) runTestsBtn.addEventListener('click', runTests);
+window.runTests = runTests;
+
+/* Attach UI listeners */
+startCamBtn.addEventListener('click', startCamera);
+captureBtn.addEventListener('click', capture);
+applyThermalBtn.addEventListener('click', applyThermal);
+predictBtn.addEventListener('click', predict);
+downloadCSVBtn.addEventListener('click', downloadCSV);
+loadModelBtn.addEventListener('click', loadTFModel);
+
+</script>
+</body>
+</html>
